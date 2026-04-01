@@ -6,7 +6,6 @@
   <title>Sala Tavoli</title>
   <meta name="theme-color" content="#f5f1e6" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Sala Tavoli" />
   <link rel="manifest" href="manifest.json" />
@@ -313,6 +312,7 @@
       </div>
       <div class="header-actions">
         <button class="btn btn-secondary" id="installBtn" style="display:none;">Installa app</button>
+        <button class="btn btn-secondary" id="toggleFullscreenBtn">Schermo intero</button>
         <button class="btn btn-danger" id="resetAllBtn">Azzera tutto</button>
       </div>
     </div>
@@ -527,6 +527,16 @@
     document.getElementById('closeBtn').addEventListener('click', closeModal);
     document.getElementById('resetAllBtn').addEventListener('click', resetAllTables);
     modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    document.getElementById('toggleFullscreenBtn').addEventListener('click', async () => {
+      try {
+        if (!document.fullscreenElement) {
+          await document.documentElement.requestFullscreen();
+        } else {
+          await document.exitFullscreen();
+        }
+      } catch {}
+    });
 
     setInterval(render, 1000);
     render();
