@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Sala Tavoli</title>
+  <meta name="theme-color" content="#f5f1e6" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Sala Tavoli" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <style>
+    :root {
+      --bg: #f5f1e6;
+      --card: rgba(255,255,255,0.78);
+      --card-border: rgba(0,0,0,0.08);
+      --accent: #4caf50;
+      --blue: #3498db;
+      --danger: #e74c3c;
+      --purple: #9b59b6;
+      --text: #111;
+      --muted: #5f665f;
+      --shadow: 0 10px 28px rgba(0,0,0,0.08);
+      --green-free: #39d353;
+      --red-busy: #ff5a52;
+      --purple-alert: #a855f7;
+    }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100%;
+      overscroll-behavior: none;
+      user-select: none;
+    }
+
+    body {
+      padding: 12px;
+    }
+
+    .app-shell {
+      min-height: calc(100vh - 24px);
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 12px;
+    }
+
+    .header-card,
+    .summary-card,
+    .table-card,
+    .modal-card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(8px);
+    }
+
+    .header-card {
+      padding: 16px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .title-wrap h1 {
+      margin: 0;
+      font-size: clamp(22px, 3vw, 34px);
+      font-weight: 800;
+      letter-spacing: 0.01em;
+    }
+
+    .title-wrap p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: clamp(13px, 1.8vw, 16px);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      border: 0;
+      border-radius: 14px;
+      padding: 12px 18px;
+      font-size: 15px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform .12s ease, opacity .12s ease, filter .12s ease;
+    }
+
+    .btn:active { transform: scale(0.985); }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-secondary { background: var(--purple); color: #fff; }
+
+    .summary-card {
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .summary-pill {
+      background: rgba(255,255,255,0.92);
+      border: 1px solid rgba(0,0,0,0.06);
+      border-radius: 16px;
+      padding: 12px 14px;
+      min-height: 84px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .summary-label {
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .summary-value {
+      font-size: clamp(22px, 3.5vw, 34px);
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      align-content: start;
+    }
+
+    .table-card {
+      min-height: 142px;
+      padding: 14px 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      text-align: center;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease;
+    }
+
+    .table-card:active { transform: scale(0.985); }
+    .table-card:hover { box-shadow: 0 12px 30px rgba(0,0,0,0.10); }
+
+    .table-status-bar {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 8px;
+      border-radius: 18px 0 0 18px;
+      opacity: 0.95;
+    }
+
+    .table-number {
+      font-size: clamp(28px, 5vw, 40px);
+      font-weight: 900;
+      line-height: 1;
+      margin-top: 6px;
+    }
+
+    .table-state {
+      font-size: 15px;
+      font-weight: 800;
+      margin-top: 4px;
+    }
+
+    .table-time {
+      font-size: clamp(24px, 4vw, 32px);
+      font-weight: 900;
+      line-height: 1;
+      margin-top: 10px;
+      letter-spacing: 0.02em;
+    }
+
+    .table-sub {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      margin-top: 6px;
+    }
+
+    .free {
+      background: linear-gradient(180deg, rgba(57,211,83,0.20), rgba(57,211,83,0.12));
+      border-color: rgba(57,211,83,0.35);
+    }
+    .free .table-status-bar { background: var(--green-free); }
+
+    .busy {
+      background: linear-gradient(180deg, rgba(255,90,82,0.22), rgba(255,90,82,0.12));
+      border-color: rgba(255,90,82,0.35);
+    }
+    .busy .table-status-bar { background: var(--red-busy); }
+
+    .alert {
+      background: #c084fc;
+      border-color: #7e22ce;
+      animation: blinkPulse 1s steps(1, end) infinite;
+    }
+    .alert .table-status-bar {
+      background: #7e22ce;
+      width: 12px;
+      box-shadow: 0 0 0 1px rgba(126,34,206,0.12);
+    }
+
+    @keyframes blinkPulse {
+      0%, 49% {
+        background: #c084fc;
+        border-color: #7e22ce;
+        box-shadow: 0 10px 28px rgba(126,34,206,0.22);
+        transform: scale(1);
+      }
+      50%, 100% {
+        background: #ffffff;
+        border-color: #7e22ce;
+        box-shadow: 0 10px 28px rgba(126,34,206,0.12);
+        transform: scale(1);
+      }
+    }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(17, 17, 17, 0.34);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      z-index: 999;
+    }
+
+    .overlay.show { display: flex; }
+
+    .modal-card {
+      width: min(480px, 100%);
+      padding: 20px;
+    }
+
+    .modal-title {
+      margin: 0;
+      font-size: clamp(22px, 5vw, 30px);
+      font-weight: 900;
+    }
+
+    .modal-body {
+      margin: 10px 0 18px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.45;
+      font-weight: 600;
+    }
+
+    .modal-actions {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 1fr;
+    }
+
+    .footer-note {
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+
+    @media (max-width: 980px) {
+      .summary-card { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .table-card { min-height: 126px; }
+      .btn { padding: 11px 14px; }
+    }
+
+    @media (max-width: 760px) {
+      body { padding: 10px; }
+      .app-shell { min-height: calc(100vh - 20px); }
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .summary-card { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (orientation: landscape) and (max-height: 750px) {
+      .grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+      .table-card { min-height: 112px; padding: 12px 10px; }
+      .table-number { font-size: clamp(22px, 4vw, 32px); }
+      .table-time { font-size: clamp(18px, 3.2vw, 24px); }
+      .summary-pill { min-height: 70px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <div class="header-card">
+      <div class="title-wrap">
+        <h1>Sala Tavoli</h1>
+        <p>20 tavoli • verde libero • rosso occupato • viola lampeggiante dopo 40 minuti di inattività</p>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary" id="installBtn" style="display:none;">Installa app</button>
+        <button class="btn btn-secondary" id="toggleFullscreenBtn">Schermo intero</button>
+        <button class="btn btn-danger" id="resetAllBtn">Azzera tutto</button>
+      </div>
+    </div>
+
+    <div class="summary-card">
+      <div class="summary-pill">
+        <div class="summary-label">Tavoli liberi</div>
+        <div class="summary-value" id="freeCount">0</div>
+      </div>
+      <div class="summary-pill">
+        <div class="summary-label">Tavoli occupati</div>
+        <div class="summary-value" id="busyCount">0</div>
+      </div>
+      <div class="summary-pill">
+        <div class="summary-label">Da controllare</div>
+        <div class="summary-value" id="alertCount">0</div>
+      </div>
+      <div class="summary-pill">
+        <div class="summary-label">Soglia inattività</div>
+        <div class="summary-value">40m</div>
+      </div>
+    </div>
+
+    <div class="grid" id="tablesGrid"></div>
+  </div>
+
+  <div class="overlay" id="tableModal">
+    <div class="modal-card">
+      <h2 class="modal-title" id="modalTitle">Tavolo</h2>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="orderBtn">Ordina</button>
+        <button class="btn btn-danger" id="freeBtn">Libera tavolo</button>
+        <button class="btn" id="closeBtn" style="background:#ffffff; border:1px solid rgba(0,0,0,0.10); color:#111;">Chiudi</button>
+      </div>
+      <div class="footer-note">I dati restano salvati su questo dispositivo anche se chiudi la pagina.</div>
+    </div>
+  </div>
+
+  <script>
+    const TABLES_TOTAL = 20;
+    const INACTIVITY_MS = 40 * 60 * 1000;
+    const STORAGE_KEY = 'eleven-sala-tavoli-v1';
+
+    const grid = document.getElementById('tablesGrid');
+    const modal = document.getElementById('tableModal');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalBody = document.getElementById('modalBody');
+    const freeCount = document.getElementById('freeCount');
+    const busyCount = document.getElementById('busyCount');
+    const alertCount = document.getElementById('alertCount');
+
+    let selectedTableId = null;
+
+    function nowMs() {
+      return Date.now();
+    }
+
+    function defaultTables() {
+      const arr = [];
+      for (let i = 1; i <= TABLES_TOTAL; i++) {
+        arr.push({
+          id: i,
+          state: 'free',
+          lastActionAt: null,
+        });
+      }
+      return arr;
+    }
+
+    function loadTables() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return defaultTables();
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed) || parsed.length !== TABLES_TOTAL) return defaultTables();
+        return parsed.map((t, idx) => ({
+          id: Number(t.id) || idx + 1,
+          state: ['free', 'busy'].includes(t.state) ? t.state : 'free',
+          lastActionAt: typeof t.lastActionAt === 'number' ? t.lastActionAt : null,
+        }));
+      } catch {
+        return defaultTables();
+      }
+    }
+
+    let tables = loadTables();
+
+    function saveTables() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(tables));
+    }
+
+    function getVisualState(table) {
+      if (table.state === 'free') return 'free';
+      if (!table.lastActionAt) return 'busy';
+      return (nowMs() - table.lastActionAt) >= INACTIVITY_MS ? 'alert' : 'busy';
+    }
+
+    function formatElapsed(ms) {
+      if (!ms || ms < 0) return '00:00';
+      const totalSec = Math.floor(ms / 1000);
+      const minutes = Math.floor(totalSec / 60);
+      const seconds = totalSec % 60;
+      return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    function stateLabel(state) {
+      if (state === 'free') return 'Libero';
+      if (state === 'alert') return 'Da controllare';
+      return 'Occupato';
+    }
+
+    function render() {
+      grid.innerHTML = '';
+
+      let free = 0;
+      let busy = 0;
+      let alert = 0;
+
+      tables.forEach((table) => {
+        const visual = getVisualState(table);
+        if (visual === 'free') free++;
+        else if (visual === 'alert') alert++;
+        else busy++;
+
+        const elapsed = table.lastActionAt ? nowMs() - table.lastActionAt : 0;
+        const card = document.createElement('button');
+        card.className = `table-card ${visual}`;
+        card.setAttribute('type', 'button');
+        card.innerHTML = `
+          <span class="table-status-bar"></span>
+          <div class="table-number">${table.id}</div>
+          <div class="table-state">${stateLabel(visual)}</div>
+          <div class="table-time">${visual === 'free' ? '--:--' : formatElapsed(elapsed)}</div>
+          <div class="table-sub">${visual === 'free' ? 'Tocca per occupare' : 'Tocca per azioni'}</div>
+        `;
+        card.addEventListener('click', () => onTableClick(table.id));
+        grid.appendChild(card);
+      });
+
+      freeCount.textContent = String(free);
+      busyCount.textContent = String(busy);
+      alertCount.textContent = String(alert);
+    }
+
+    function occupyTable(tableId) {
+      tables = tables.map((t) => t.id === tableId ? { ...t, state: 'busy', lastActionAt: nowMs() } : t);
+      saveTables();
+      render();
+    }
+
+    function orderTable(tableId) {
+      tables = tables.map((t) => t.id === tableId ? { ...t, state: 'busy', lastActionAt: nowMs() } : t);
+      saveTables();
+      closeModal();
+      render();
+    }
+
+    function releaseTable(tableId) {
+      tables = tables.map((t) => t.id === tableId ? { ...t, state: 'free', lastActionAt: null } : t);
+      saveTables();
+      closeModal();
+      render();
+    }
+
+    function resetAllTables() {
+      const ok = window.confirm('Vuoi davvero riportare tutti i tavoli a verde?');
+      if (!ok) return;
+      tables = defaultTables();
+      saveTables();
+      closeModal();
+      render();
+    }
+
+    function onTableClick(tableId) {
+      const table = tables.find((t) => t.id === tableId);
+      if (!table) return;
+      if (table.state === 'free') {
+        occupyTable(tableId);
+        return;
+      }
+      openModal(tableId);
+    }
+
+    function openModal(tableId) {
+      selectedTableId = tableId;
+      const table = tables.find((t) => t.id === tableId);
+      if (!table) return;
+      const visual = getVisualState(table);
+      const elapsed = table.lastActionAt ? nowMs() - table.lastActionAt : 0;
+      modalTitle.textContent = `Tavolo ${tableId}`;
+      modalBody.innerHTML = `
+        Stato attuale: <strong>${stateLabel(visual)}</strong><br>
+        Tempo dall'ultima azione: <strong>${formatElapsed(elapsed)}</strong><br><br>
+        <strong>Ordina</strong> resetta il timer e fa ripartire i 40 minuti.<br>
+        <strong>Libera tavolo</strong> lo riporta verde.
+      `;
+      modal.classList.add('show');
+    }
+
+    function closeModal() {
+      selectedTableId = null;
+      modal.classList.remove('show');
+    }
+
+    document.getElementById('orderBtn').addEventListener('click', () => {
+      if (selectedTableId != null) orderTable(selectedTableId);
+    });
+    document.getElementById('freeBtn').addEventListener('click', () => {
+      if (selectedTableId != null) releaseTable(selectedTableId);
+    });
+    document.getElementById('closeBtn').addEventListener('click', closeModal);
+    document.getElementById('resetAllBtn').addEventListener('click', resetAllTables);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    document.getElementById('toggleFullscreenBtn').addEventListener('click', async () => {
+      try {
+        if (!document.fullscreenElement) {
+          await document.documentElement.requestFullscreen();
+        } else {
+          await document.exitFullscreen();
+        }
+      } catch {}
+    });
+
+    setInterval(render, 1000);
+    render();
+
+    let deferredPrompt = null;
+    const installBtn = document.getElementById('installBtn');
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      installBtn.style.display = 'inline-block';
+    });
+
+    installBtn.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      installBtn.style.display = 'none';
+    });
+
+    window.addEventListener('appinstalled', () => {
+      deferredPrompt = null;
+      installBtn.style.display = 'none';
+    });
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./service-worker.js').catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>
