@@ -312,7 +312,8 @@
       </div>
       <div class="header-actions">
         <button class="btn btn-secondary" id="installBtn" style="display:none;">Installa app</button>
-                <button class="btn btn-danger" id="resetAllBtn">Azzera tutto</button>
+        <button class="btn btn-secondary" id="toggleFullscreenBtn">Schermo intero</button>
+        <button class="btn btn-danger" id="resetAllBtn">Azzera tutto</button>
       </div>
     </div>
 
@@ -536,6 +537,17 @@
         hardResetTables();
         render();
       }
+    });
+
+
+    document.getElementById('toggleFullscreenBtn').addEventListener('click', async () => {
+      try {
+        if (!document.fullscreenElement) {
+          await document.documentElement.requestFullscreen();
+        } else {
+          await document.exitFullscreen();
+        }
+      } catch {}
     });
 
     hardResetTables();
