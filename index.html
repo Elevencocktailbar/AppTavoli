@@ -312,8 +312,7 @@
       </div>
       <div class="header-actions">
         <button class="btn btn-secondary" id="installBtn" style="display:none;">Installa app</button>
-        <button class="btn btn-secondary" id="toggleFullscreenBtn">Schermo intero</button>
-        <button class="btn btn-danger" id="resetAllBtn">Azzera tutto</button>
+                <button class="btn btn-danger" id="resetAllBtn">Azzera tutto</button>
       </div>
     </div>
 
@@ -348,7 +347,7 @@
         <button class="btn btn-danger" id="freeBtn">Libera tavolo</button>
         <button class="btn" id="closeBtn" style="background:#ffffff; border:1px solid rgba(0,0,0,0.10); color:#111;">Chiudi</button>
       </div>
-      <div class="footer-note">I dati restano salvati su questo dispositivo anche se chiudi la pagina.</div>
+      <div class="footer-note">Alla chiusura e alla riapertura l'app riparte sempre da zero.</div>
     </div>
   </div>
 
@@ -367,6 +366,8 @@
 
     let selectedTableId = null;
 
+    const RESET_ON_REOPEN_FLAG = 'eleven-sala-tavoli-reset-on-reopen';
+
     function nowMs() {
       return Date.now();
     }
@@ -384,25 +385,18 @@
     }
 
     function loadTables() {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return defaultTables();
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed) || parsed.length !== TABLES_TOTAL) return defaultTables();
-        return parsed.map((t, idx) => ({
-          id: Number(t.id) || idx + 1,
-          state: ['free', 'busy'].includes(t.state) ? t.state : 'free',
-          lastActionAt: typeof t.lastActionAt === 'number' ? t.lastActionAt : null,
-        }));
-      } catch {
-        return defaultTables();
-      }
+      return defaultTables();
     }
 
     let tables = loadTables();
 
     function saveTables() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(tables));
+    }
+
+    function hardResetTables() {
+      tables = defaultTables();
+      saveTables();
     }
 
     function getVisualState(table) {
@@ -528,16 +522,23 @@
     document.getElementById('resetAllBtn').addEventListener('click', resetAllTables);
     modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
-    document.getElementById('toggleFullscreenBtn').addEventListener('click', async () => {
-      try {
-        if (!document.fullscreenElement) {
-          await document.documentElement.requestFullscreen();
-        } else {
-          await document.exitFullscreen();
-        }
-      } catch {}
+
+    window.addEventListener('pageshow', () => {
+      hardResetTables();
+      render();
     });
 
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        sessionStorage.setItem(RESET_ON_REOPEN_FLAG, '1');
+      } else if (sessionStorage.getItem(RESET_ON_REOPEN_FLAG) === '1') {
+        sessionStorage.removeItem(RESET_ON_REOPEN_FLAG);
+        hardResetTables();
+        render();
+      }
+    });
+
+    hardResetTables();
     setInterval(render, 1000);
     render();
 

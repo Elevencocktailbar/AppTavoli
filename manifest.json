@@ -1,7 +1,7 @@
 {
   "name": "Sala Tavoli",
   "short_name": "Sala Tavoli",
-  "description": "Gestione tavoli locale a schermo intero per tablet.",
+  "description": "Gestione tavoli locale per tablet. Ogni riapertura parte da zero.",
   "lang": "it",
   "start_url": "./index.html",
   "scope": "./",
