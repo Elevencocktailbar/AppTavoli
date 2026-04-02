@@ -1,4 +1,4 @@
-const CACHE_NAME = "sala-tavoli-pwa-v5-total-time";
+const CACHE_NAME = "sala-tavoli-pwa-v4";
 const ASSETS = [
   "./",
   "./index.html",
