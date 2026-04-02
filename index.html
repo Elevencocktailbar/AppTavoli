@@ -150,7 +150,7 @@
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      text-align: center;
+      text-align: left;
       cursor: pointer;
       position: relative;
       overflow: hidden;
@@ -173,13 +173,15 @@
       top: 10px;
       right: 10px;
       min-width: 66px;
+      padding: 6px 8px;
+      border-radius: 12px;
+      background: transparent;
+      border: 0;
       display: flex;
       flex-direction: column;
       align-items: center;
       gap: 2px;
       line-height: 1;
-      background: transparent;
-      border: 0;
     }
 
     .table-total-label,
@@ -196,6 +198,10 @@
       font-size: 15px;
       font-weight: 900;
       color: var(--text);
+    }
+
+    .table-orders-label {
+      margin-top: 5px;
     }
 
     .table-number {
@@ -257,7 +263,7 @@
         transform: scale(1);
       }
       50%, 100% {
-        background: #ffffff;
+        background: transparent;
         border-color: #7e22ce;
         box-shadow: 0 10px 28px rgba(126,34,206,0.12);
         transform: scale(1);
@@ -330,9 +336,11 @@
       .table-number { font-size: clamp(22px, 4vw, 32px); }
       .table-time { font-size: clamp(18px, 3.2vw, 24px); }
       .summary-pill { min-height: 70px; }
-      .table-total-badge { top: 8px; right: 8px; min-width: 58px; }
-      .table-total-label, .table-orders-label { font-size: 9px; }
-      .table-total-value, .table-orders-value { font-size: 13px; }
+      .table-total-badge { top: 8px; right: 8px; min-width: 58px; padding: 5px 6px; }
+      .table-total-label,
+      .table-orders-label { font-size: 9px; }
+      .table-total-value,
+      .table-orders-value { font-size: 13px; }
     }
   </style>
 </head>
@@ -379,7 +387,7 @@
       <div class="modal-actions">
         <button class="btn btn-primary" id="orderBtn">Ordina</button>
         <button class="btn btn-danger" id="freeBtn">Libera tavolo</button>
-        <button class="btn" id="closeBtn" style="background:#ffffff; border:1px solid rgba(0,0,0,0.10); color:#111;">Chiudi</button>
+        <button class="btn" id="closeBtn" style="background:transparent; border:1px solid rgba(0,0,0,0.10); color:#111;">Chiudi</button>
       </div>
       <div class="footer-note">Alla chiusura e alla riapertura l'app riparte sempre da zero.</div>
     </div>
@@ -389,7 +397,8 @@
     const TABLES_TOTAL = 20;
     const FIRST_ORDER_WAIT_MS = 5 * 60 * 1000;
     const INACTIVITY_MS = 40 * 60 * 1000;
-    const STORAGE_KEY = 'eleven-sala-tavoli-v1';
+    const STORAGE_KEY = 'eleven-sala-tavoli-v3';
+    const RESET_ON_REOPEN_FLAG = 'eleven-sala-tavoli-reset-on-reopen';
 
     const grid = document.getElementById('tablesGrid');
     const modal = document.getElementById('tableModal');
@@ -400,8 +409,6 @@
     const alertCount = document.getElementById('alertCount');
 
     let selectedTableId = null;
-
-    const RESET_ON_REOPEN_FLAG = 'eleven-sala-tavoli-reset-on-reopen';
 
     function nowMs() {
       return Date.now();
@@ -422,8 +429,27 @@
       return arr;
     }
 
+    function sanitizeTable(raw, idx) {
+      return {
+        id: Number(raw?.id) || idx + 1,
+        state: ['free', 'busy'].includes(raw?.state) ? raw.state : 'free',
+        occupiedAt: typeof raw?.occupiedAt === 'number' ? raw.occupiedAt : null,
+        firstOrderAt: typeof raw?.firstOrderAt === 'number' ? raw.firstOrderAt : null,
+        lastActionAt: typeof raw?.lastActionAt === 'number' ? raw.lastActionAt : null,
+        orderCount: Number.isFinite(Number(raw?.orderCount)) ? Number(raw.orderCount) : 0,
+      };
+    }
+
     function loadTables() {
-      return defaultTables();
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return defaultTables();
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed) || parsed.length !== TABLES_TOTAL) return defaultTables();
+        return parsed.map((t, idx) => sanitizeTable(t, idx));
+      } catch {
+        return defaultTables();
+      }
     }
 
     let tables = loadTables();
@@ -437,14 +463,23 @@
       saveTables();
     }
 
+    function hasFirstOrder(table) {
+      return typeof table.firstOrderAt === 'number';
+    }
+
+    function getReferenceElapsed(table) {
+      if (table.state === 'free') return 0;
+      if (!hasFirstOrder(table)) {
+        return table.occupiedAt ? nowMs() - table.occupiedAt : 0;
+      }
+      return table.lastActionAt ? nowMs() - table.lastActionAt : 0;
+    }
+
     function getVisualState(table) {
       if (table.state === 'free') return 'free';
-      if (!table.firstOrderAt) {
-        if (!table.occupiedAt) return 'busy';
-        return (nowMs() - table.occupiedAt) >= FIRST_ORDER_WAIT_MS ? 'alert' : 'busy';
-      }
-      if (!table.lastActionAt) return 'busy';
-      return (nowMs() - table.lastActionAt) >= INACTIVITY_MS ? 'alert' : 'busy';
+      const referenceElapsed = getReferenceElapsed(table);
+      const threshold = hasFirstOrder(table) ? INACTIVITY_MS : FIRST_ORDER_WAIT_MS;
+      return referenceElapsed >= threshold ? 'alert' : 'busy';
     }
 
     function formatElapsed(ms) {
@@ -455,10 +490,17 @@
       return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     }
 
-    function stateLabel(state) {
-      if (state === 'free') return 'Libero';
-      if (state === 'alert') return 'Da controllare';
+    function stateLabel(table, visual) {
+      if (visual === 'free') return 'Libero';
+      if (visual === 'alert' && !hasFirstOrder(table)) return 'Primo ordine';
+      if (visual === 'alert') return 'Da controllare';
       return 'Occupato';
+    }
+
+    function subLabel(table, visual) {
+      if (visual === 'free') return 'Tocca per occupare';
+      if (!hasFirstOrder(table)) return 'Attesa primo ordine';
+      return 'Tempo da ultima azione';
     }
 
     function render() {
@@ -474,9 +516,9 @@
         else if (visual === 'alert') alert++;
         else busy++;
 
-        const activityReferenceAt = table.firstOrderAt ? table.lastActionAt : table.occupiedAt;
-        const elapsed = activityReferenceAt ? nowMs() - activityReferenceAt : 0;
+        const mainElapsed = getReferenceElapsed(table);
         const totalOccupiedElapsed = table.occupiedAt ? nowMs() - table.occupiedAt : 0;
+
         const card = document.createElement('button');
         card.className = `table-card ${visual}`;
         card.setAttribute('type', 'button');
@@ -487,13 +529,13 @@
               <div class="table-total-label">Totale</div>
               <div class="table-total-value">${formatElapsed(totalOccupiedElapsed)}</div>
               <div class="table-orders-label">Ordini</div>
-              <div class="table-orders-value">${table.orderCount ?? 0}</div>
+              <div class="table-orders-value">${table.orderCount}</div>
             </div>
           `}
           <div class="table-number">${table.id}</div>
-          <div class="table-state">${stateLabel(visual)}</div>
-          <div class="table-time">${visual === 'free' ? '--:--' : formatElapsed(elapsed)}</div>
-          <div class="table-sub">${visual === 'free' ? 'Tocca per occupare' : (table.firstOrderAt ? 'Tempo da ultima azione' : 'Attesa primo ordine')}</div>
+          <div class="table-state">${stateLabel(table, visual)}</div>
+          <div class="table-time">${visual === 'free' ? '--:--' : formatElapsed(mainElapsed)}</div>
+          <div class="table-sub">${subLabel(table, visual)}</div>
         `;
         card.addEventListener('click', () => onTableClick(table.id));
         grid.appendChild(card);
@@ -506,21 +548,46 @@
 
     function occupyTable(tableId) {
       const ts = nowMs();
-      tables = tables.map((t) => t.id === tableId ? { ...t, state: 'busy', occupiedAt: ts, firstOrderAt: null, lastActionAt: null, orderCount: 0 } : t);
+      tables = tables.map((t) => t.id === tableId ? {
+        ...t,
+        state: 'busy',
+        occupiedAt: ts,
+        firstOrderAt: null,
+        lastActionAt: null,
+        orderCount: 0,
+      } : t);
       saveTables();
       render();
     }
 
     function orderTable(tableId) {
       const ts = nowMs();
-      tables = tables.map((t) => t.id === tableId ? { ...t, state: 'busy', occupiedAt: ts, firstOrderAt: null, lastActionAt: null, orderCount: 0 } : t);
+      tables = tables.map((t) => {
+        if (t.id !== tableId) return t;
+        const isFirstOrder = !hasFirstOrder(t);
+        return {
+          ...t,
+          state: 'busy',
+          occupiedAt: t.occupiedAt ?? ts,
+          firstOrderAt: isFirstOrder ? ts : t.firstOrderAt,
+          lastActionAt: ts,
+          orderCount: (t.orderCount || 0) + 1,
+        };
+      });
       saveTables();
       closeModal();
       render();
     }
 
     function releaseTable(tableId) {
-      tables = tables.map((t) => t.id === tableId ? { ...t, state: 'free', occupiedAt: null, firstOrderAt: null, lastActionAt: null, orderCount: 0 } : t);
+      tables = tables.map((t) => t.id === tableId ? {
+        ...t,
+        state: 'free',
+        occupiedAt: null,
+        firstOrderAt: null,
+        lastActionAt: null,
+        orderCount: 0,
+      } : t);
       saveTables();
       closeModal();
       render();
@@ -529,8 +596,7 @@
     function resetAllTables() {
       const ok = window.confirm('Vuoi davvero riportare tutti i tavoli a verde?');
       if (!ok) return;
-      tables = defaultTables();
-      saveTables();
+      hardResetTables();
       closeModal();
       render();
     }
@@ -550,19 +616,21 @@
       const table = tables.find((t) => t.id === tableId);
       if (!table) return;
       const visual = getVisualState(table);
-      const activityReferenceAt = table.firstOrderAt ? table.lastActionAt : table.occupiedAt;
-      const elapsed = activityReferenceAt ? nowMs() - activityReferenceAt : 0;
+      const mainElapsed = getReferenceElapsed(table);
       const totalOccupiedElapsed = table.occupiedAt ? nowMs() - table.occupiedAt : 0;
+      const waitingText = hasFirstOrder(table)
+        ? "Ordina resetta il timer dei 40 minuti e aggiunge un ordine."
+        : "Ordina registra il primo ordine, annulla il timer dei 5 minuti e fa partire quello dei 40 minuti.";
       modalTitle.textContent = `Tavolo ${tableId}`;
       modalBody.innerHTML = `
-        Stato attuale: <strong>${stateLabel(visual)}</strong><br>
+        Stato attuale: <strong>${stateLabel(table, visual)}</strong><br>
         Tempo totale occupato: <strong>${formatElapsed(totalOccupiedElapsed)}</strong><br>
-        Ordini registrati: <strong>${table.orderCount ?? 0}</strong><br>
-        ${table.firstOrderAt
-          ? `Tempo dall'ultima azione: <strong>${formatElapsed(elapsed)}</strong><br><br>
-        <strong>Ordina</strong> aggiunge un ordine e resetta il timer dei 40 minuti.<br>`
-          : `Tempo dal tavolo occupato: <strong>${formatElapsed(elapsed)}</strong><br><br>
-        <strong>Ordina</strong> registra il primo ordine e avvia il timer dei 40 minuti.<br>`}
+        ${hasFirstOrder(table)
+          ? `Tempo dall'ultima azione: <strong>${formatElapsed(mainElapsed)}</strong><br>`
+          : `Tempo in attesa del primo ordine: <strong>${formatElapsed(mainElapsed)}</strong><br>`
+        }
+        Ordini registrati: <strong>${table.orderCount}</strong><br><br>
+        <strong>Ordina</strong> ${waitingText}<br>
         <strong>Libera tavolo</strong> lo riporta verde e azzera tutto.
       `;
       modal.classList.add('show');
@@ -583,7 +651,6 @@
     document.getElementById('resetAllBtn').addEventListener('click', resetAllTables);
     modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
-
     window.addEventListener('pageshow', () => {
       hardResetTables();
       render();
@@ -598,7 +665,6 @@
         render();
       }
     });
-
 
     document.getElementById('toggleFullscreenBtn').addEventListener('click', async () => {
       try {
