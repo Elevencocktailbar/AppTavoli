@@ -150,7 +150,7 @@
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      text-align: center;
+      text-align: left;
       cursor: pointer;
       position: relative;
       overflow: hidden;
@@ -166,6 +166,36 @@
       width: 8px;
       border-radius: 18px 0 0 18px;
       opacity: 0.95;
+    }
+
+    .table-total-badge {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      min-width: 66px;
+      padding: 6px 8px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.92);
+      border: 1px solid rgba(0,0,0,0.08);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      line-height: 1;
+    }
+
+    .table-total-label {
+      font-size: 10px;
+      font-weight: 800;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .table-total-value {
+      font-size: 15px;
+      font-weight: 900;
+      color: var(--text);
     }
 
     .table-number {
@@ -300,6 +330,9 @@
       .table-number { font-size: clamp(22px, 4vw, 32px); }
       .table-time { font-size: clamp(18px, 3.2vw, 24px); }
       .summary-pill { min-height: 70px; }
+      .table-total-badge { top: 8px; right: 8px; min-width: 58px; padding: 5px 6px; }
+      .table-total-label { font-size: 9px; }
+      .table-total-value { font-size: 13px; }
     }
   </style>
 </head>
@@ -355,7 +388,8 @@
   <script>
     const TABLES_TOTAL = 20;
     const INACTIVITY_MS = 40 * 60 * 1000;
-    const STORAGE_KEY = 'eleven-sala-tavoli-v1';
+    const STORAGE_KEY = 'eleven-sala-tavoli-v2';
+    const RESET_ON_REOPEN_FLAG = 'eleven-sala-tavoli-reset-on-reopen';
 
     const grid = document.getElementById('tablesGrid');
     const modal = document.getElementById('tableModal');
@@ -367,8 +401,6 @@
 
     let selectedTableId = null;
 
-    const RESET_ON_REOPEN_FLAG = 'eleven-sala-tavoli-reset-on-reopen';
-
     function nowMs() {
       return Date.now();
     }
@@ -379,14 +411,32 @@
         arr.push({
           id: i,
           state: 'free',
+          occupiedAt: null,
           lastActionAt: null,
         });
       }
       return arr;
     }
 
+    function sanitizeTable(raw, idx) {
+      return {
+        id: Number(raw?.id) || idx + 1,
+        state: ['free', 'busy'].includes(raw?.state) ? raw.state : 'free',
+        occupiedAt: typeof raw?.occupiedAt === 'number' ? raw.occupiedAt : null,
+        lastActionAt: typeof raw?.lastActionAt === 'number' ? raw.lastActionAt : null,
+      };
+    }
+
     function loadTables() {
-      return defaultTables();
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return defaultTables();
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed) || parsed.length !== TABLES_TOTAL) return defaultTables();
+        return parsed.map((t, idx) => sanitizeTable(t, idx));
+      } catch {
+        return defaultTables();
+      }
     }
 
     let tables = loadTables();
@@ -433,16 +483,24 @@
         else if (visual === 'alert') alert++;
         else busy++;
 
-        const elapsed = table.lastActionAt ? nowMs() - table.lastActionAt : 0;
+        const inactivityElapsed = table.lastActionAt ? nowMs() - table.lastActionAt : 0;
+        const totalOccupiedElapsed = table.occupiedAt ? nowMs() - table.occupiedAt : 0;
+
         const card = document.createElement('button');
         card.className = `table-card ${visual}`;
         card.setAttribute('type', 'button');
         card.innerHTML = `
           <span class="table-status-bar"></span>
+          ${visual === 'free' ? '' : `
+            <div class="table-total-badge">
+              <div class="table-total-label">Totale</div>
+              <div class="table-total-value">${formatElapsed(totalOccupiedElapsed)}</div>
+            </div>
+          `}
           <div class="table-number">${table.id}</div>
           <div class="table-state">${stateLabel(visual)}</div>
-          <div class="table-time">${visual === 'free' ? '--:--' : formatElapsed(elapsed)}</div>
-          <div class="table-sub">${visual === 'free' ? 'Tocca per occupare' : 'Tocca per azioni'}</div>
+          <div class="table-time">${visual === 'free' ? '--:--' : formatElapsed(inactivityElapsed)}</div>
+          <div class="table-sub">${visual === 'free' ? 'Tocca per occupare' : 'Tempo da ultima azione'}</div>
         `;
         card.addEventListener('click', () => onTableClick(table.id));
         grid.appendChild(card);
@@ -454,20 +512,37 @@
     }
 
     function occupyTable(tableId) {
-      tables = tables.map((t) => t.id === tableId ? { ...t, state: 'busy', lastActionAt: nowMs() } : t);
+      const ts = nowMs();
+      tables = tables.map((t) => t.id === tableId ? {
+        ...t,
+        state: 'busy',
+        occupiedAt: ts,
+        lastActionAt: ts,
+      } : t);
       saveTables();
       render();
     }
 
     function orderTable(tableId) {
-      tables = tables.map((t) => t.id === tableId ? { ...t, state: 'busy', lastActionAt: nowMs() } : t);
+      const ts = nowMs();
+      tables = tables.map((t) => t.id === tableId ? {
+        ...t,
+        state: 'busy',
+        occupiedAt: t.occupiedAt ?? ts,
+        lastActionAt: ts,
+      } : t);
       saveTables();
       closeModal();
       render();
     }
 
     function releaseTable(tableId) {
-      tables = tables.map((t) => t.id === tableId ? { ...t, state: 'free', lastActionAt: null } : t);
+      tables = tables.map((t) => t.id === tableId ? {
+        ...t,
+        state: 'free',
+        occupiedAt: null,
+        lastActionAt: null,
+      } : t);
       saveTables();
       closeModal();
       render();
@@ -476,8 +551,7 @@
     function resetAllTables() {
       const ok = window.confirm('Vuoi davvero riportare tutti i tavoli a verde?');
       if (!ok) return;
-      tables = defaultTables();
-      saveTables();
+      hardResetTables();
       closeModal();
       render();
     }
@@ -497,13 +571,15 @@
       const table = tables.find((t) => t.id === tableId);
       if (!table) return;
       const visual = getVisualState(table);
-      const elapsed = table.lastActionAt ? nowMs() - table.lastActionAt : 0;
+      const inactivityElapsed = table.lastActionAt ? nowMs() - table.lastActionAt : 0;
+      const totalOccupiedElapsed = table.occupiedAt ? nowMs() - table.occupiedAt : 0;
       modalTitle.textContent = `Tavolo ${tableId}`;
       modalBody.innerHTML = `
         Stato attuale: <strong>${stateLabel(visual)}</strong><br>
-        Tempo dall'ultima azione: <strong>${formatElapsed(elapsed)}</strong><br><br>
-        <strong>Ordina</strong> resetta il timer e fa ripartire i 40 minuti.<br>
-        <strong>Libera tavolo</strong> lo riporta verde.
+        Tempo totale occupato: <strong>${formatElapsed(totalOccupiedElapsed)}</strong><br>
+        Tempo dall'ultima azione: <strong>${formatElapsed(inactivityElapsed)}</strong><br><br>
+        <strong>Ordina</strong> aggiorna solo il timer di inattività dei 40 minuti.<br>
+        <strong>Libera tavolo</strong> lo riporta verde e azzera tutto.
       `;
       modal.classList.add('show');
     }
@@ -523,7 +599,6 @@
     document.getElementById('resetAllBtn').addEventListener('click', resetAllTables);
     modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
-
     window.addEventListener('pageshow', () => {
       hardResetTables();
       render();
@@ -538,7 +613,6 @@
         render();
       }
     });
-
 
     document.getElementById('toggleFullscreenBtn').addEventListener('click', async () => {
       try {
