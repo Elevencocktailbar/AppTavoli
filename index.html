@@ -859,5 +859,29 @@
       }
     };
   </script>
+
+<script>
+const SERVER = "http://192.168.1.221:8765";
+
+document.addEventListener("click", async (e) => {
+  const btn = e.target;
+  if(btn.innerText && btn.innerText.includes("CUCINA")) {
+    const card = btn.closest("[data-table]") || btn.closest("div");
+    let table = null;
+    if(card && card.dataset.table) table = parseInt(card.dataset.table);
+    if(!table) {
+      const match = card.innerText.match(/\b(\d+)\b/);
+      if(match) table = parseInt(match[1]);
+    }
+    if(table) {
+      fetch(SERVER + "/api/send", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({table})
+      });
+    }
+  }
+});
+</script>
 </body>
 </html>
