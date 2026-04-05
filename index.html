@@ -26,6 +26,8 @@
       --green-free: #39d353;
       --red-busy: #ff5a52;
       --purple-alert: #a855f7;
+      --yellow-call: #facc15;
+      --yellow-call-dark: #ca8a04;
     }
 
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -180,7 +182,7 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 6px;
+      gap: 2px;
       line-height: 1;
     }
 
@@ -201,7 +203,7 @@
     }
 
     .table-orders-label {
-      margin-top: 15px;
+      margin-top: 5px;
     }
 
     .table-number {
@@ -255,6 +257,17 @@
       box-shadow: 0 0 0 1px rgba(126,34,206,0.12);
     }
 
+    .kitchen-ready {
+      background: linear-gradient(180deg, rgba(250,204,21,0.95), rgba(250,204,21,0.38));
+      border-color: rgba(202,138,4,0.9);
+      animation: kitchenBlink 1s steps(1, end) infinite;
+    }
+    .kitchen-ready .table-status-bar {
+      background: var(--yellow-call-dark);
+      width: 12px;
+      box-shadow: 0 0 0 1px rgba(202,138,4,0.16);
+    }
+
     @keyframes blinkPulse {
       0%, 49% {
         background: #c084fc;
@@ -267,6 +280,19 @@
         border-color: #7e22ce;
         box-shadow: 0 10px 28px rgba(126,34,206,0.12);
         transform: scale(1);
+      }
+    }
+
+    @keyframes kitchenBlink {
+      0%, 49% {
+        background: linear-gradient(180deg, rgba(250,204,21,0.95), rgba(250,204,21,0.38));
+        border-color: rgba(202,138,4,0.9);
+        box-shadow: 0 10px 28px rgba(202,138,4,0.28);
+      }
+      50%, 100% {
+        background: transparent;
+        border-color: rgba(202,138,4,0.9);
+        box-shadow: 0 10px 28px rgba(202,138,4,0.15);
       }
     }
 
@@ -349,7 +375,7 @@
     <div class="header-card">
       <div class="title-wrap">
         <h1>Sala Tavoli</h1>
-        <p>20 tavoli • verde libero • rosso occupato • viola lampeggiante dopo 40 minuti di inattività</p>
+        <p>20 tavoli • verde libero • rosso occupato • viola lampeggiante dopo 40 minuti di inattività • giallo lampeggiante = chiamata cucina</p>
       </div>
       <div class="header-actions">
         <button class="btn btn-secondary" id="installBtn" style="display:none;">Installa app</button>
@@ -386,6 +412,8 @@
       <div class="modal-body" id="modalBody"></div>
       <div class="modal-actions">
         <button class="btn btn-primary" id="orderBtn">Ordina</button>
+        <button class="btn btn-secondary" id="kitchenBtn">Cucina</button>
+        <button class="btn" id="acceptKitchenBtn" style="display:none; background:#facc15; color:#111;">Accetta cucina</button>
         <button class="btn btn-danger" id="freeBtn">Libera tavolo</button>
         <button class="btn" id="closeBtn" style="background:transparent; border:1px solid rgba(0,0,0,0.10); color:#111;">Chiudi</button>
       </div>
@@ -397,7 +425,7 @@
     const TABLES_TOTAL = 20;
     const FIRST_ORDER_WAIT_MS = 5 * 60 * 1000;
     const INACTIVITY_MS = 40 * 60 * 1000;
-    const STORAGE_KEY = 'eleven-sala-tavoli-v3';
+    const STORAGE_KEY = 'eleven-sala-tavoli-v4';
     const RESET_ON_REOPEN_FLAG = 'eleven-sala-tavoli-reset-on-reopen';
 
     const grid = document.getElementById('tablesGrid');
@@ -407,11 +435,34 @@
     const freeCount = document.getElementById('freeCount');
     const busyCount = document.getElementById('busyCount');
     const alertCount = document.getElementById('alertCount');
+    const orderBtn = document.getElementById('orderBtn');
+    const kitchenBtn = document.getElementById('kitchenBtn');
+    const acceptKitchenBtn = document.getElementById('acceptKitchenBtn');
 
     let selectedTableId = null;
+    let kitchenRequestSeed = 1;
 
     function nowMs() {
       return Date.now();
+    }
+
+    function createKitchenRequest(tableId) {
+      return {
+        id: `k-${tableId}-${nowMs()}-${kitchenRequestSeed++}`,
+        status: 'preparing',
+        createdAt: nowMs(),
+        readyAt: null,
+      };
+    }
+
+    function sanitizeKitchenRequest(raw, tableId) {
+      const createdAt = typeof raw?.createdAt === 'number' ? raw.createdAt : nowMs();
+      return {
+        id: String(raw?.id || `k-${tableId}-${createdAt}-${kitchenRequestSeed++}`),
+        status: ['preparing', 'ready_waiting_bar_ack'].includes(raw?.status) ? raw.status : 'preparing',
+        createdAt,
+        readyAt: typeof raw?.readyAt === 'number' ? raw.readyAt : null,
+      };
     }
 
     function defaultTables() {
@@ -424,12 +475,16 @@
           firstOrderAt: null,
           lastActionAt: null,
           orderCount: 0,
+          kitchenRequests: [],
         });
       }
       return arr;
     }
 
     function sanitizeTable(raw, idx) {
+      const kitchenRequests = Array.isArray(raw?.kitchenRequests)
+        ? raw.kitchenRequests.map((req) => sanitizeKitchenRequest(req, Number(raw?.id) || idx + 1))
+        : [];
       return {
         id: Number(raw?.id) || idx + 1,
         state: ['free', 'busy'].includes(raw?.state) ? raw.state : 'free',
@@ -437,6 +492,7 @@
         firstOrderAt: typeof raw?.firstOrderAt === 'number' ? raw.firstOrderAt : null,
         lastActionAt: typeof raw?.lastActionAt === 'number' ? raw.lastActionAt : null,
         orderCount: Number.isFinite(Number(raw?.orderCount)) ? Number(raw.orderCount) : 0,
+        kitchenRequests,
       };
     }
 
@@ -467,6 +523,17 @@
       return typeof table.firstOrderAt === 'number';
     }
 
+    function getKitchenCounts(table) {
+      const requests = Array.isArray(table.kitchenRequests) ? table.kitchenRequests : [];
+      const preparing = requests.filter((req) => req.status === 'preparing').length;
+      const ready = requests.filter((req) => req.status === 'ready_waiting_bar_ack').length;
+      return {
+        total: requests.length,
+        preparing,
+        ready,
+      };
+    }
+
     function getReferenceElapsed(table) {
       if (table.state === 'free') return 0;
       if (!hasFirstOrder(table)) {
@@ -476,6 +543,8 @@
     }
 
     function getVisualState(table) {
+      const kitchenCounts = getKitchenCounts(table);
+      if (kitchenCounts.ready > 0) return 'kitchen-ready';
       if (table.state === 'free') return 'free';
       const referenceElapsed = getReferenceElapsed(table);
       const threshold = hasFirstOrder(table) ? INACTIVITY_MS : FIRST_ORDER_WAIT_MS;
@@ -491,14 +560,20 @@
     }
 
     function stateLabel(table, visual) {
+      const kitchenCounts = getKitchenCounts(table);
+      if (visual === 'kitchen-ready') return kitchenCounts.ready === 1 ? 'Cucina pronta' : `Cucina pronta x${kitchenCounts.ready}`;
       if (visual === 'free') return 'Libero';
       if (visual === 'alert' && !hasFirstOrder(table)) return 'Primo ordine';
       if (visual === 'alert') return 'Da controllare';
+      if (kitchenCounts.preparing > 0) return kitchenCounts.preparing === 1 ? 'In cucina' : `In cucina x${kitchenCounts.preparing}`;
       return 'Occupato';
     }
 
     function subLabel(table, visual) {
+      const kitchenCounts = getKitchenCounts(table);
       if (visual === 'free') return 'Tocca per occupare';
+      if (kitchenCounts.ready > 0) return kitchenCounts.preparing > 0 ? `Pronte: ${kitchenCounts.ready} • In cucina: ${kitchenCounts.preparing}` : `Pronte da ritirare: ${kitchenCounts.ready}`;
+      if (kitchenCounts.preparing > 0) return `Richieste in cucina: ${kitchenCounts.preparing}`;
       if (!hasFirstOrder(table)) return 'Attesa primo ordine';
       return 'Tempo da ultima azione';
     }
@@ -513,7 +588,7 @@
       tables.forEach((table) => {
         const visual = getVisualState(table);
         if (visual === 'free') free++;
-        else if (visual === 'alert') alert++;
+        else if (visual === 'alert' || visual === 'kitchen-ready') alert++;
         else busy++;
 
         const mainElapsed = getReferenceElapsed(table);
@@ -555,23 +630,60 @@
         firstOrderAt: null,
         lastActionAt: null,
         orderCount: 0,
+        kitchenRequests: [],
       } : t);
       saveTables();
       render();
     }
 
+    function bumpOrderState(table, ts) {
+      const isFirstOrder = !hasFirstOrder(table);
+      return {
+        ...table,
+        state: 'busy',
+        occupiedAt: table.occupiedAt ?? ts,
+        firstOrderAt: isFirstOrder ? ts : table.firstOrderAt,
+        lastActionAt: ts,
+        orderCount: (table.orderCount || 0) + 1,
+      };
+    }
+
     function orderTable(tableId) {
+      const ts = nowMs();
+      tables = tables.map((t) => t.id === tableId ? bumpOrderState(t, ts) : t);
+      saveTables();
+      closeModal();
+      render();
+    }
+
+    function sendKitchen(tableId) {
       const ts = nowMs();
       tables = tables.map((t) => {
         if (t.id !== tableId) return t;
-        const isFirstOrder = !hasFirstOrder(t);
+        const updated = bumpOrderState(t, ts);
+        const request = createKitchenRequest(tableId);
+        updated.kitchenRequests = [...(updated.kitchenRequests || []), request];
+        return updated;
+      });
+      saveTables();
+      closeModal();
+      render();
+    }
+
+    function acceptKitchen(tableId) {
+      tables = tables.map((t) => {
+        if (t.id !== tableId) return t;
+        let removed = false;
+        const kitchenRequests = (t.kitchenRequests || []).filter((req) => {
+          if (!removed && req.status === 'ready_waiting_bar_ack') {
+            removed = true;
+            return false;
+          }
+          return true;
+        });
         return {
           ...t,
-          state: 'busy',
-          occupiedAt: t.occupiedAt ?? ts,
-          firstOrderAt: isFirstOrder ? ts : t.firstOrderAt,
-          lastActionAt: ts,
-          orderCount: (t.orderCount || 0) + 1,
+          kitchenRequests,
         };
       });
       saveTables();
@@ -587,6 +699,7 @@
         firstOrderAt: null,
         lastActionAt: null,
         orderCount: 0,
+        kitchenRequests: [],
       } : t);
       saveTables();
       closeModal();
@@ -618,9 +731,10 @@
       const visual = getVisualState(table);
       const mainElapsed = getReferenceElapsed(table);
       const totalOccupiedElapsed = table.occupiedAt ? nowMs() - table.occupiedAt : 0;
+      const kitchenCounts = getKitchenCounts(table);
       const waitingText = hasFirstOrder(table)
-        ? "Ordina resetta il timer dei 40 minuti e aggiunge un ordine."
-        : "Ordina registra il primo ordine, annulla il timer dei 5 minuti e fa partire quello dei 40 minuti.";
+        ? 'Ordina resetta il timer dei 40 minuti e aggiunge un ordine.'
+        : 'Ordina registra il primo ordine, annulla il timer dei 5 minuti e fa partire quello dei 40 minuti.';
       modalTitle.textContent = `Tavolo ${tableId}`;
       modalBody.innerHTML = `
         Stato attuale: <strong>${stateLabel(table, visual)}</strong><br>
@@ -629,10 +743,18 @@
           ? `Tempo dall'ultima azione: <strong>${formatElapsed(mainElapsed)}</strong><br>`
           : `Tempo in attesa del primo ordine: <strong>${formatElapsed(mainElapsed)}</strong><br>`
         }
-        Ordini registrati: <strong>${table.orderCount}</strong><br><br>
+        Ordini registrati: <strong>${table.orderCount}</strong><br>
+        In cucina: <strong>${kitchenCounts.preparing}</strong><br>
+        Pronti da ritirare: <strong>${kitchenCounts.ready}</strong><br><br>
         <strong>Ordina</strong> ${waitingText}<br>
+        <strong>Cucina</strong> resetta il timer, aggiunge un ordine e crea una nuova chiamata cucina per questo tavolo.<br>
+        ${kitchenCounts.ready > 0 ? '<strong>Accetta cucina</strong> chiude una chiamata pronta alla volta.<br>' : ''}
         <strong>Libera tavolo</strong> lo riporta verde e azzera tutto.
       `;
+      acceptKitchenBtn.style.display = kitchenCounts.ready > 0 ? 'block' : 'none';
+      kitchenBtn.textContent = kitchenCounts.preparing > 0 || kitchenCounts.ready > 0
+        ? `Cucina (+1) • attive ${kitchenCounts.total}`
+        : 'Cucina';
       modal.classList.add('show');
     }
 
@@ -641,8 +763,43 @@
       modal.classList.remove('show');
     }
 
-    document.getElementById('orderBtn').addEventListener('click', () => {
+    // Stub pronti per il collegamento futuro con il tablet 2
+    function markKitchenReadyByRequest(tableId, requestId) {
+      tables = tables.map((t) => {
+        if (t.id !== tableId) return t;
+        return {
+          ...t,
+          kitchenRequests: (t.kitchenRequests || []).map((req) => {
+            if (req.id !== requestId || req.status === 'ready_waiting_bar_ack') return req;
+            return {
+              ...req,
+              status: 'ready_waiting_bar_ack',
+              readyAt: nowMs(),
+            };
+          }),
+        };
+      });
+      saveTables();
+      render();
+    }
+
+    // Helper temporaneo per test manuali dal browser console:
+    window.__markOldestKitchenReady = function(tableId) {
+      const table = tables.find((t) => t.id === Number(tableId));
+      if (!table) return;
+      const oldestPreparing = (table.kitchenRequests || []).find((req) => req.status === 'preparing');
+      if (!oldestPreparing) return;
+      markKitchenReadyByRequest(table.id, oldestPreparing.id);
+    };
+
+    orderBtn.addEventListener('click', () => {
       if (selectedTableId != null) orderTable(selectedTableId);
+    });
+    kitchenBtn.addEventListener('click', () => {
+      if (selectedTableId != null) sendKitchen(selectedTableId);
+    });
+    acceptKitchenBtn.addEventListener('click', () => {
+      if (selectedTableId != null) acceptKitchen(selectedTableId);
     });
     document.getElementById('freeBtn').addEventListener('click', () => {
       if (selectedTableId != null) releaseTable(selectedTableId);
